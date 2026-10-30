@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # misconfig-ConfigRelationshipValidator
 Checks for consistency and correctness of relationships defined between configuration parameters. For example, verifying that the 'port' value in one service configuration matches the 'listening_port' in another service's configuration if they are supposed to communicate. - Focused on Check for misconfigurations in configuration files or infrastructure definitions
 
