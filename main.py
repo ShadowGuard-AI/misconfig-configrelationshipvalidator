@@ -87,6 +87,9 @@ def validate_relationship(config_data, relationship):
     Returns:
         bool: True if the relationship is valid, False otherwise.
     """
+    if not isinstance(relationship, dict):
+        logging.error(f"Invalid relationship definition: expected an object, got: {relationship!r}")
+        return False
     source_file = relationship.get("source_file")
     source_param = relationship.get("source_param")
     target_file = relationship.get("target_file")
@@ -100,13 +103,13 @@ def validate_relationship(config_data, relationship):
     try:
         source_value = get_value_from_config(config_data, source_file, source_param)
         target_value = get_value_from_config(config_data, target_file, target_param)
-    except KeyError as e:
+    except (KeyError, TypeError) as e:
         logging.error(f"Parameter not found: {e} in relationship {relationship}")
         return False
 
     if source_value is None or target_value is None:
-        logging.warning(f"One or more values are None for relationship: {relationship}. Source Value: {source_value}, Target Value: {target_value}")
-        return True # Consider None values as valid for now, may want to configure this
+        logging.warning(f"One or more values are None for relationship: {relationship}. A None value fails the relationship.")
+        return False
 
     try:
         if comparison == "equals":
@@ -151,6 +154,8 @@ def get_value_from_config(config_data, file_name, param_path):
 
     try:
         for part in path_parts:
+            if not isinstance(data, dict):
+                raise KeyError(f"Parameter '{param_path}' not found in file '{file_name}': path crosses a non-mapping value.")
             data = data[part]
         return data
     except KeyError:
@@ -173,21 +178,37 @@ def main():
 
     try:
         relationships = load_relationships(args.relationship_file)
+        if not isinstance(relationships, list) or not relationships:
+            logging.error("Relationships file is empty or is not a JSON array: no relationships would be checked.")
+            print("Error: No relationships checked: the relationships file is empty or is not a JSON array.")
+            sys.exit(1)
     except (FileNotFoundError, ValueError) as e:
         logging.error(f"Failed to load relationships file: {e}")
         sys.exit(1)
 
     config_data = {}
+    seen_basenames = {}
     for file_path in args.config_files:
+        base = os.path.basename(file_path)
+        if base in seen_basenames:
+            logging.error(f"Configuration files '{seen_basenames[base]}' and '{file_path}' share the same base name '{base}'. Refusing: one would silently replace the other.")
+            print(f"Error: Configuration files '{seen_basenames[base]}' and '{file_path}' share the same base name '{base}'. Rename one file or pass only one of them.")
+            sys.exit(1)
+        seen_basenames[base] = file_path
         try:
-            config_data[os.path.basename(file_path)] = load_config(file_path)
+            config_data[base] = load_config(file_path)
         except (FileNotFoundError, ValueError) as e:
             logging.error(f"Failed to load configuration file {file_path}: {e}")
             sys.exit(1)
 
     valid = True
     for relationship in relationships:
-        if not validate_relationship(config_data, relationship):
+        try:
+            result = validate_relationship(config_data, relationship)
+        except Exception as e:
+            logging.error(f"Relationship validation failed with an error: {relationship} ({e})")
+            result = False
+        if not result:
             logging.error(f"Relationship validation failed: {relationship}")
             valid = False
         else:
