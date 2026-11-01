@@ -107,6 +107,10 @@ def validate_relationship(config_data, relationship):
         logging.error(f"Parameter not found: {e} in relationship {relationship}")
         return False
 
+    # A parameter that exists with a null value fails here, the
+    # same as a comparison that came out false. Two parameters
+    # both deliberately set to null do not satisfy an equals
+    # relationship in my reading.
     if source_value is None or target_value is None:
         logging.warning(f"One or more values are None for relationship: {relationship}. A None value fails the relationship.")
         return False
@@ -117,6 +121,11 @@ def validate_relationship(config_data, relationship):
         elif comparison == "not_equals":
             return source_value != target_value
         elif comparison == "greater_than":
+            # Ordering comparisons between unlike types, a number against
+            # a string, raise TypeError and are caught below, returning
+            # False. That makes a type mismatch in the config look exactly
+            # like an honest failed relationship in the final verdict,
+            # with only the log line to tell them apart.
             return source_value > target_value
         elif comparison == "less_than":
             return source_value < target_value
@@ -156,6 +165,10 @@ def get_value_from_config(config_data, file_name, param_path):
         for part in path_parts:
             if not isinstance(data, dict):
                 raise KeyError(f"Parameter '{param_path}' not found in file '{file_name}': path crosses a non-mapping value.")
+            # Paths walk mappings only. A parameter inside a list cannot
+            # be addressed, since a numeric part is looked up as a mapping
+            # key, and a YAML mapping with an integer key cannot be
+            # addressed either, because the path part is always a string.
             data = data[part]
         return data
     except KeyError:
@@ -169,6 +182,10 @@ def main():
     args = parser.parse_args()
 
     try:
+        # The try around this can never catch anything: argparse has
+        # already restricted the value to its choices list, and
+        # setLevel accepts the names given. The error message and
+        # exit below it are unreachable from the command line.
         logging.getLogger().setLevel(args.log_level.upper())
     except ValueError:
         print("Invalid log level.  Please choose from DEBUG, INFO, WARNING, ERROR, or CRITICAL.")
@@ -189,6 +206,11 @@ def main():
     config_data = {}
     seen_basenames = {}
     for file_path in args.config_files:
+        # Everything downstream knows a file by this base name alone.
+        # A relationship file has to name source and target files the
+        # same way, so a relationship written with a directory path in
+        # it never matches the loaded data and fails as not found.
+        # The collision refusal below exists because of this choice.
         base = os.path.basename(file_path)
         if base in seen_basenames:
             logging.error(f"Configuration files '{seen_basenames[base]}' and '{file_path}' share the same base name '{base}'. Refusing: one would silently replace the other.")
